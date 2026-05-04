@@ -1,0 +1,27 @@
+# Core Reachy Mini SDK
+reachy-mini
+
+# STT – fast Whisper optimised for CPU/ARM
+faster-whisper>=1.0.0
+
+# TTS – Piper neural TTS (pip install; model downloaded at runtime)
+piper-tts>=1.2.0
+
+# VAD
+webrtcvad-wheels>=2.0.10     # binary wheel – avoids C compiler on CM4
+
+# Audio resampling
+scipy>=1.11.0
+numpy>=1.24.0
+
+# LLM (OpenAI-compatible client)
+openai>=1.30.0
+
+# YAML config
+pyyaml>=6.0
+
+# Home Assistant REST calls
+requests>=2.31.0
+
+# Optional wake-word engine (uncomment to enable)
+# openwakeword>=0.6.0

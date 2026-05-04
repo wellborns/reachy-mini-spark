@@ -1,0 +1,95 @@
+# Reachy Mini Spark Voice Assistant Configuration
+
+# ---------------------------------------------------------------------------
+# Spark LLM (OpenAI-compatible endpoint on the Spark device)
+# ---------------------------------------------------------------------------
+spark:
+  # Spark's local IP or hostname.  Ollama default port is 11434; LM Studio 1234.
+  api_base: "http://spark.local:11434/v1"
+  api_key: "ollama"          # placeholder – not validated by Ollama
+  model: "llama3.2:3b"       # any model loaded on the Spark
+  max_tokens: 256
+  temperature: 0.7
+  timeout: 30                # seconds to wait for LLM response
+  system_prompt: |
+    You are Reachy, a friendly household assistant robot built by Pollen Robotics.
+    You have a warm, concise personality.  Keep spoken responses to 1-3 sentences
+    because they will be read aloud by a text-to-speech engine.
+
+    When the user asks you to control a smart-home device, emit ONE action tag
+    immediately before your spoken reply, in this exact format:
+      [HASS:<domain>/<service>:<entity_id>:<json_data>]
+    Examples:
+      [HASS:light/turn_on:light.living_room:{"brightness":200}]
+      [HASS:switch/turn_off:switch.fan:]
+      [HASS:climate/set_temperature:climate.bedroom:{"temperature":22}]
+    Omit the tag entirely when no home-automation action is needed.
+
+# ---------------------------------------------------------------------------
+# Speech-to-Text  (faster-whisper, runs on CM4)
+# ---------------------------------------------------------------------------
+stt:
+  model: "tiny"        # tiny | base | small  – tiny is fastest on CM4
+  language: "en"       # set null for auto-detect
+  device: "cpu"
+  compute_type: "int8" # int8 for speed; float32 for accuracy
+  beam_size: 1
+
+# ---------------------------------------------------------------------------
+# Text-to-Speech  (piper-tts, runs on CM4)
+# ---------------------------------------------------------------------------
+tts:
+  engine: "piper"               # piper | espeak
+  # Piper voice model – downloaded automatically on first run
+  voice: "en_US-lessac-medium"
+  speed: 1.0
+  # espeak fallback settings (used when engine=espeak or piper unavailable)
+  espeak_voice: "en-us"
+  espeak_speed: 150             # words per minute
+
+# ---------------------------------------------------------------------------
+# Voice Activity Detection  (webrtcvad, runs on CM4)
+# ---------------------------------------------------------------------------
+vad:
+  mode: 2                      # 0 (permissive) – 3 (aggressive), 2 recommended
+  frame_duration_ms: 30        # 10 | 20 | 30
+  silence_duration_ms: 1200   # trailing silence before end-of-utterance
+  min_speech_duration_ms: 400  # discard very short blips
+  max_utterance_duration_s: 30 # safety cap
+
+# ---------------------------------------------------------------------------
+# Wake-word  (optional; set enabled: false for always-on listening)
+# ---------------------------------------------------------------------------
+wake_word:
+  enabled: false
+  phrase: "hey reachy"         # used only for openwakeword model selection
+
+# ---------------------------------------------------------------------------
+# Home Assistant
+# ---------------------------------------------------------------------------
+hass:
+  enabled: false
+  url: "http://homeassistant.local:8123"
+  # Long-lived access token from HA → Profile → Security
+  token: ""
+  # Entity IDs to inject into LLM context so it knows available devices.
+  # Leave empty to skip context injection; add specific IDs for best results.
+  exposed_entities:
+    # - light.living_room
+    # - switch.fan
+    # - climate.bedroom
+    # - media_player.living_room_tv
+  request_timeout: 5           # seconds
+
+# ---------------------------------------------------------------------------
+# Robot Behaviour
+# ---------------------------------------------------------------------------
+robot:
+  # Head nod gently while listening
+  head_nod_on_listen: true
+  # Small head shake on transcription failure
+  head_shake_on_error: true
+  # Wiggle antennas while speaking
+  antenna_wiggle_on_speak: true
+  # Look slightly down when idle (natural resting pose)
+  idle_head_pitch_deg: -5
