@@ -21,7 +21,11 @@ class WhisperSTT:
         self._compute_type: str = stt_cfg.get("compute_type", "int8")
         self._beam_size: int = stt_cfg.get("beam_size", 1)
         self._model = None
-        self._load()  # pre-load at startup so first utterance isn't delayed
+        # pre-load at startup so first utterance isn't delayed; non-fatal on failure
+        try:
+            self._load()
+        except Exception as exc:
+            logger.warning("Whisper model pre-load failed (will retry on first use): %s", exc)
 
     def _load(self) -> None:
         if self._model is not None:
