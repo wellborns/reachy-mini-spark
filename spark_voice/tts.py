@@ -140,7 +140,13 @@ class PiperTTS:
                 for audio_bytes in voice.synthesize_stream_raw(text):
                     wf.writeframes(audio_bytes)
 
-        return buf.getvalue(), rate
+        wav_bytes = buf.getvalue()
+        with wave.open(io.BytesIO(wav_bytes)) as check_wf:
+            if check_wf.getnframes() == 0:
+                raise RuntimeError(
+                    "Piper produced 0 audio frames – piper-phonemize may be broken on this platform"
+                )
+        return wav_bytes, rate
 
     def _resolve_model(self) -> str:
         """Return path to the .onnx model file, downloading if needed."""

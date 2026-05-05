@@ -39,7 +39,7 @@ def _goto(robot: "ReachyMini", head: np.ndarray | None = None,
                 kwargs["antennas"] = antennas
             robot.goto_target(**kwargs)
         except Exception as exc:
-            logger.debug("goto_target failed: %s", exc)
+            logger.warning("goto_target failed: %s", exc)
     threading.Thread(target=_go, daemon=True).start()
 
 
