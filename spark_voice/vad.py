@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections
 import logging
+import math
 import time
 from typing import TYPE_CHECKING
 
@@ -21,12 +22,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# webrtcvad only accepts 8 / 16 / 32 kHz
-_VAD_RATE = 16_000
+_VAD_RATE = 16_000  # webrtcvad only accepts 8 / 16 / 32 kHz
 
 
 def _to_int16(samples: np.ndarray) -> bytes:
-    """Convert float32 [-1, 1] to int16 PCM bytes."""
     clipped = np.clip(samples, -1.0, 1.0)
     return (clipped * 32767).astype(np.int16).tobytes()
 
@@ -34,15 +33,11 @@ def _to_int16(samples: np.ndarray) -> bytes:
 def _resample(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
     if src_rate == dst_rate:
         return audio
-    import math
     g = math.gcd(src_rate, dst_rate)
     return resample_poly(audio, dst_rate // g, src_rate // g).astype(np.float32)
 
 
-def collect_utterance(
-    robot: "ReachyMini",
-    cfg: dict,
-) -> np.ndarray | None:
+def collect_utterance(robot: "ReachyMini", cfg: dict) -> np.ndarray | None:
     """Record until an utterance is complete; return float32 16 kHz mono array.
 
     Returns None on timeout or if no speech was detected.
@@ -55,45 +50,54 @@ def collect_utterance(
     max_s: float = vad_cfg.get("max_utterance_duration_s", 30)
 
     vad = webrtcvad.Vad(mode)
-    frame_samples = (_VAD_RATE * frame_ms) // 1000  # samples per vad frame
+
+    # Number of 16 kHz samples in one VAD frame (must be 10/20/30 ms)
+    vad_frame_samples = (_VAD_RATE * frame_ms) // 1000
     silence_frames_needed = silence_ms // frame_ms
     min_speech_frames = min_speech_ms // frame_ms
 
     hw_rate: int = robot.media.get_input_audio_samplerate()
     hw_channels: int = robot.media.get_input_channels()
-    hw_frame_samples = (hw_rate * frame_ms) // 1000
 
-    logger.debug(
-        "VAD init: hw_rate=%d channels=%d vad_frame_samples=%d",
-        hw_rate, hw_channels, frame_samples,
+    logger.info(
+        "VAD ready: hw_rate=%d ch=%d  vad_frame=%dms  silence_thresh=%dms",
+        hw_rate, hw_channels, frame_ms, silence_ms,
     )
 
     robot.media.start_recording()
     try:
         return _run_vad_loop(
-            robot, vad,
-            hw_rate, hw_channels, hw_frame_samples,
-            frame_samples, silence_frames_needed,
-            min_speech_frames, max_s,
+            robot, vad, hw_rate, hw_channels,
+            vad_frame_samples, silence_frames_needed, min_speech_frames, max_s,
         )
     finally:
         robot.media.stop_recording()
 
 
 def _run_vad_loop(
-    robot, vad, hw_rate, hw_channels, hw_frame_samples,
-    frame_samples, silence_frames_needed, min_speech_frames, max_s,
+    robot, vad, hw_rate, hw_channels,
+    vad_frame_samples, silence_frames_needed, min_speech_frames, max_s,
 ) -> np.ndarray | None:
-    buffer: list[np.ndarray] = []   # accumulated 16 kHz float32 frames
-    ring = collections.deque(maxlen=silence_frames_needed)
+    """Core VAD accumulator.
+
+    Maintains a flat float32 sample buffer at _VAD_RATE.  Each iteration
+    pulls whatever `get_audio_sample()` returns, resamples, appends to the
+    buffer, then slices off as many complete VAD frames as are available.
+    This avoids the stale-sample bug where the same prefix was reprocessed
+    on every iteration.
+    """
+    # Flat buffer of float32 samples at _VAD_RATE
+    pending: list[float] = []
+    pending_arr = np.empty(0, dtype=np.float32)
+
+    utterance_frames: list[np.ndarray] = []   # 16 kHz frames we'll return
+    pre_speech: collections.deque[np.ndarray] = collections.deque(maxlen=10)  # ~300 ms
+
     speech_started = False
     speech_frame_count = 0
     silence_frame_count = 0
     deadline = time.monotonic() + max_s
-
-    # Pre-speech padding: keep the last ~300 ms so we don't clip the start
-    padding_frames = 10
-    pre_speech: collections.deque[np.ndarray] = collections.deque(maxlen=padding_frames)
+    logged_waiting = False
 
     while time.monotonic() < deadline:
         raw = robot.media.get_audio_sample()
@@ -101,52 +105,60 @@ def _run_vad_loop(
             time.sleep(0.005)
             continue
 
-        # Ensure 1-D mono
-        if raw.ndim > 1:
-            raw = raw[:, 0]
+        if not logged_waiting:
+            logger.debug("Audio flowing from mic.")
+            logged_waiting = True
 
-        # Accumulate enough samples for one VAD frame
-        ring.append(raw)
-        chunk = np.concatenate(list(ring))
-        if len(chunk) < hw_frame_samples:
-            continue
+        # Ensure 1-D mono float32
+        chunk = np.asarray(raw, dtype=np.float32)
+        if chunk.ndim > 1:
+            chunk = chunk[:, 0]
 
-        # Take exactly one frame worth from the front
-        frame_hw = chunk[:hw_frame_samples]
-        # resample to VAD rate
-        frame_16k = _resample(frame_hw, hw_rate, _VAD_RATE)
+        # Resample to VAD rate and append to pending buffer
+        chunk_16k = _resample(chunk, hw_rate, _VAD_RATE)
+        pending_arr = np.concatenate([pending_arr, chunk_16k])
 
-        is_speech = False
-        try:
-            is_speech = vad.is_speech(_to_int16(frame_16k[:frame_samples]), _VAD_RATE)
-        except Exception:
-            pass
+        # Drain as many complete VAD frames as we have
+        while len(pending_arr) >= vad_frame_samples:
+            frame = pending_arr[:vad_frame_samples]
+            pending_arr = pending_arr[vad_frame_samples:]  # ← advance past processed
 
-        if not speech_started:
-            pre_speech.append(frame_16k)
-            if is_speech:
-                speech_started = True
-                buffer.extend(list(pre_speech))
-                speech_frame_count = 1
-                silence_frame_count = 0
-                logger.debug("Speech started")
-        else:
-            buffer.append(frame_16k)
-            if is_speech:
-                speech_frame_count += 1
-                silence_frame_count = 0
+            is_speech = False
+            try:
+                is_speech = vad.is_speech(_to_int16(frame), _VAD_RATE)
+            except Exception:
+                pass
+
+            if not speech_started:
+                pre_speech.append(frame)
+                if is_speech:
+                    speech_started = True
+                    utterance_frames.extend(list(pre_speech))
+                    speech_frame_count = 1
+                    silence_frame_count = 0
+                    logger.info("Speech detected – recording utterance …")
             else:
-                silence_frame_count += 1
-                if silence_frame_count >= silence_frames_needed:
-                    logger.debug(
-                        "Speech ended: %d speech frames", speech_frame_count
-                    )
-                    break
+                utterance_frames.append(frame)
+                if is_speech:
+                    speech_frame_count += 1
+                    silence_frame_count = 0
+                else:
+                    silence_frame_count += 1
+                    if silence_frame_count >= silence_frames_needed:
+                        logger.debug(
+                            "End of utterance: %d speech frames, %d silence frames",
+                            speech_frame_count, silence_frame_count,
+                        )
+                        # Return only speech + small trailing silence
+                        keep = speech_frame_count + min(silence_frame_count, 5)
+                        return np.concatenate(utterance_frames[-keep:]) \
+                            if keep < len(utterance_frames) \
+                            else np.concatenate(utterance_frames)
 
-    if not buffer or speech_frame_count < min_speech_frames:
+    if not utterance_frames or speech_frame_count < min_speech_frames:
         logger.debug("No valid utterance (speech_frames=%d)", speech_frame_count)
         return None
 
-    utterance = np.concatenate(buffer)
-    logger.debug("Utterance collected: %.2f s", len(utterance) / _VAD_RATE)
-    return utterance
+    result = np.concatenate(utterance_frames)
+    logger.debug("Utterance collected: %.2f s", len(result) / _VAD_RATE)
+    return result

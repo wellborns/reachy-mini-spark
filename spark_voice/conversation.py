@@ -163,10 +163,15 @@ def main() -> None:
                         help="Clear LLM conversation history and exit")
     args = parser.parse_args()
 
+    # force=True overrides any handler the SDK already installed on the root logger.
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        force=True,
     )
+    # Suppress the websocket frame-level chatter regardless of our level.
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("websockets.client").setLevel(logging.WARNING)
 
     app = SparkVoiceApp(config_path=args.config)
     app.wrapped_run()
