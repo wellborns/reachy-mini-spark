@@ -21,6 +21,7 @@ class WhisperSTT:
         self._compute_type: str = stt_cfg.get("compute_type", "int8")
         self._beam_size: int = stt_cfg.get("beam_size", 1)
         self._model = None
+        self._load()  # pre-load at startup so first utterance isn't delayed
 
     def _load(self) -> None:
         if self._model is not None:
@@ -47,11 +48,12 @@ class WhisperSTT:
         """Transcribe float32 16 kHz mono audio; return stripped text."""
         self._load()
 
+        # vad_filter disabled – audio is already VAD-trimmed by collect_utterance()
+        # enabling it here double-filters and often discards valid speech
         segments, info = self._model.transcribe(
             audio,
             language=self._language,
             beam_size=self._beam_size,
-            vad_filter=True,            # built-in silero-vad pass
         )
         text = " ".join(seg.text for seg in segments).strip()
         logger.debug(

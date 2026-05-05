@@ -34,7 +34,7 @@ class SparkVoiceApp(ReachyMiniApp):
     def __init__(self, config_path: str | None = None) -> None:
         super().__init__()
         self._cfg: dict[str, Any] = load_cfg(config_path)
-        self._stt = WhisperSTT(self._cfg)
+        self._stt = WhisperSTT(self._cfg)   # pre-loads Whisper model at startup
         self._tts = PiperTTS(self._cfg)
         self._llm = SparkLLM(self._cfg)
         self._hass = HASSClient(self._cfg)
@@ -45,6 +45,7 @@ class SparkVoiceApp(ReachyMiniApp):
 
     def run(self, robot: ReachyMini, stop_event: threading.Event) -> None:  # type: ignore[override]
         logger.info("Spark Voice Assistant started.")
+        self._check_spark()
         robot.wake_up()
         robot_behavior.go_idle(robot, self._cfg)
 
@@ -62,6 +63,29 @@ class SparkVoiceApp(ReachyMiniApp):
         logger.info("Spark Voice Assistant stopped.")
 
     # ------------------------------------------------------------------
+    # Startup diagnostics
+    # ------------------------------------------------------------------
+
+    def _check_spark(self) -> None:
+        """Ping the Spark LLM endpoint and log reachability."""
+        import urllib.request
+        import urllib.error
+        spark_cfg = self._cfg.get("spark", {})
+        api_base = spark_cfg.get("api_base", "")
+        models_url = api_base.rstrip("/").replace("/v1", "") + "/api/tags"
+        try:
+            with urllib.request.urlopen(models_url, timeout=5) as r:
+                logger.info("Spark reachable at %s (HTTP %d)", api_base, r.status)
+        except urllib.error.URLError as exc:
+            logger.warning(
+                "Cannot reach Spark at %s: %s  "
+                "– LLM calls will fail until it is reachable.",
+                api_base, exc,
+            )
+        except Exception as exc:
+            logger.warning("Spark connectivity check failed: %s", exc)
+
+    # ------------------------------------------------------------------
     # Single conversation turn
     # ------------------------------------------------------------------
 
@@ -75,7 +99,6 @@ class SparkVoiceApp(ReachyMiniApp):
         if not detected or stop_event.is_set():
             return
 
-        # Signal readiness: brief antenna perk + log
         logger.info("Listening …")
         robot_behavior.on_listen_start(robot, self._cfg)
 
@@ -85,6 +108,7 @@ class SparkVoiceApp(ReachyMiniApp):
             robot_behavior.go_idle(robot, self._cfg)
             return
 
+        logger.info("Utterance collected: %.2f s – transcribing …", len(utterance) / 16_000)
         robot_behavior.on_listen_end(robot, self._cfg)
 
         # 2. Transcribe
@@ -97,7 +121,7 @@ class SparkVoiceApp(ReachyMiniApp):
             return
 
         if not text:
-            logger.debug("Empty transcription – ignoring.")
+            logger.info("Empty transcription – ignoring utterance.")
             robot_behavior.go_idle(robot, self._cfg)
             return
 
@@ -105,6 +129,7 @@ class SparkVoiceApp(ReachyMiniApp):
 
         # 3. Build HASS context and query LLM
         hass_context = self._hass.build_context() if self._hass.enabled else ""
+        logger.info("Querying Spark LLM …")
 
         try:
             spoken, hass_action = self._llm.chat(text, context_prefix=hass_context)
@@ -137,8 +162,14 @@ class SparkVoiceApp(ReachyMiniApp):
         robot_behavior.on_speaking_start(robot, self._cfg)
         try:
             audio = self._tts.synthesize(text, robot)
+            out_rate = robot.media.get_output_audio_samplerate()
+            # push_audio_sample enqueues asynchronously; sleep for playback duration
+            # before stopping so the audio isn't cut off
+            duration_s = audio.shape[0] / out_rate if out_rate > 0 else 2.0
+            logger.debug("Speaking %.2f s of audio …", duration_s)
             robot.media.start_playing()
             robot.media.push_audio_sample(audio)
+            time.sleep(duration_s + 0.3)  # +0.3 s buffer for stream flush
             robot.media.stop_playing()
         except Exception as exc:
             logger.error("TTS/playback failed: %s", exc)
@@ -151,7 +182,6 @@ class SparkVoiceApp(ReachyMiniApp):
 
 def main() -> None:
     import argparse
-    import os
 
     parser = argparse.ArgumentParser(description="Reachy Mini Spark Voice Assistant")
     parser.add_argument("--config", default=None, help="Path to config.yaml")
