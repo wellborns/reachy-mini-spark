@@ -23,6 +23,7 @@ from . import robot as robot_behavior
 from .stt import WhisperSTT
 from .tts import PiperTTS
 from .vad import collect_utterance
+from .wake_word import wait_for_wake_word
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,14 @@ class SparkVoiceApp(ReachyMiniApp):
     def _conversation_turn(
         self, robot: ReachyMini, stop_event: threading.Event
     ) -> None:
-        # 1. Listen
+        # 1. Wait for wake word (no-op when wake_word.enabled is false)
+        if stop_event.is_set():
+            return
+        detected = wait_for_wake_word(robot, self._cfg)
+        if not detected or stop_event.is_set():
+            return
+
+        # Signal readiness: brief antenna perk + log
         logger.info("Listening …")
         robot_behavior.on_listen_start(robot, self._cfg)
 

@@ -24,4 +24,5 @@ pyyaml>=6.0
 requests>=2.31.0
 
 # Optional wake-word engine (uncomment to enable)
+# pip install openwakeword  →  then set wake_word.enabled: true in config.yaml
 # openwakeword>=0.6.0

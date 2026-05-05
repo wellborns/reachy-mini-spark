@@ -60,9 +60,22 @@ vad:
 # ---------------------------------------------------------------------------
 # Wake-word  (optional; set enabled: false for always-on listening)
 # ---------------------------------------------------------------------------
+# To enable:
+#   1. pip install openwakeword
+#   2. Set enabled: true below
+#   3. Restart the service
+#
+# Built-in models (no download needed after first run):
+#   hey_jarvis, alexa, hey_mycroft, hey_rhasspy
+#
+# Custom model: point model_path at a .onnx file you trained with
+#   https://github.com/dscripka/openWakeWord#custom-models
+# ---------------------------------------------------------------------------
 wake_word:
   enabled: false
-  phrase: "hey reachy"         # used only for openwakeword model selection
+  phrase: "hey jarvis"         # label shown in logs; matches openwakeword model name
+  model_path: null             # null = use built-in phrase model above
+  threshold: 0.5               # 0.0–1.0; lower = more sensitive (more false positives)
 
 # ---------------------------------------------------------------------------
 # Home Assistant
