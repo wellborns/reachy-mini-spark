@@ -39,9 +39,15 @@ stt:
 # Text-to-Speech  (piper-tts, runs on CM4)
 # ---------------------------------------------------------------------------
 tts:
-  engine: "espeak"              # piper | espeak  (espeak avoids ~65 MB model download)
-  # Piper voice model – downloaded automatically on first run
-  voice: "en_US-lessac-medium"
+  engine: "piper"               # piper | espeak
+  # Piper voice – downloaded automatically (~63 MB) on first run.
+  # Options (all natural-sounding neural voices):
+  #   en_US-lessac-medium   – clear US female (default)
+  #   en_US-ryan-medium     – clear US male
+  #   en_US-amy-medium      – warm US female
+  #   en_GB-alan-medium     – British male
+  #   en_GB-jenny_dioco-medium – British female
+  voice: "en_US-ryan-medium"
   speed: 1.0
   # espeak fallback settings (used when engine=espeak or piper unavailable)
   espeak_voice: "en-us"
@@ -74,9 +80,9 @@ vad:
 #   https://github.com/dscripka/openWakeWord#custom-models
 # ---------------------------------------------------------------------------
 wake_word:
-  enabled: false
-  phrase: "hey jarvis"         # label shown in logs; matches openwakeword model name
-  model_path: null             # null = use built-in phrase model above
+  enabled: true
+  phrase: "hey jarvis"         # say this to wake Reachy
+  model_path: null             # null = use built-in openwakeword model for phrase above
   threshold: 0.5               # 0.0–1.0; lower = more sensitive (more false positives)
 
 # ---------------------------------------------------------------------------

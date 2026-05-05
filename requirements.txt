@@ -23,6 +23,5 @@ pyyaml>=6.0
 # Home Assistant REST calls
 requests>=2.31.0
 
-# Optional wake-word engine (uncomment to enable)
-# pip install openwakeword  →  then set wake_word.enabled: true in config.yaml
-# openwakeword>=0.6.0
+# Wake-word engine (openwakeword – built-in models include hey_jarvis, alexa, hey_mycroft)
+openwakeword>=0.6.0
