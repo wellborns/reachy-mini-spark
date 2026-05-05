@@ -84,6 +84,7 @@ wake_word:
   phrase: "hey jarvis"         # say this to wake Reachy
   model_path: null             # null = use built-in openwakeword model for phrase above
   threshold: 0.5               # 0.0–1.0; lower = more sensitive (more false positives)
+  ready_phrase: "Yes?"         # spoken after detection so user knows to ask (set "" to just pause)
 
 # ---------------------------------------------------------------------------
 # Home Assistant

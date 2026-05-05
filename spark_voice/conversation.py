@@ -99,9 +99,18 @@ class SparkVoiceApp(ReachyMiniApp):
         if not detected or stop_event.is_set():
             return
 
-        logger.info("Listening …")
         robot_behavior.on_listen_start(robot, self._cfg)
 
+        # Speak a short ready cue so the user knows to ask, and so the
+        # wake-word audio tail (still in the mic buffer) has time to clear.
+        ww_cfg = self._cfg.get("wake_word", {})
+        ready_phrase = ww_cfg.get("ready_phrase", "Yes?")
+        if ready_phrase:
+            self._speak_quick(ready_phrase, robot)
+        else:
+            time.sleep(0.4)
+
+        logger.info("Listening …")
         utterance = collect_utterance(robot, self._cfg)
 
         if utterance is None or stop_event.is_set():
@@ -157,6 +166,58 @@ class SparkVoiceApp(ReachyMiniApp):
     # ------------------------------------------------------------------
     # TTS + playback
     # ------------------------------------------------------------------
+
+    def _speak_quick(self, text: str, robot: ReachyMini) -> None:
+        """Short acknowledgment phrase via espeak (always available, instant).
+
+        Used for wake-word ready cues where we can't afford piper latency.
+        Falls back silently to a 400 ms sleep if espeak fails.
+        """
+        import subprocess
+        import io
+        import wave
+        import numpy as np
+        from scipy.signal import resample_poly
+        import math
+
+        try:
+            tts_cfg = self._cfg.get("tts", {})
+            espeak_voice = tts_cfg.get("espeak_voice", "en-us")
+            espeak_speed = int(tts_cfg.get("espeak_speed", 150))
+
+            proc = subprocess.run(
+                ["espeak-ng", "-v", espeak_voice, "-s", str(espeak_speed), "--stdout", text],
+                capture_output=True, timeout=5,
+            )
+            if proc.returncode != 0 or not proc.stdout:
+                time.sleep(0.4)
+                return
+
+            # Parse WAV from espeak stdout
+            with wave.open(io.BytesIO(proc.stdout)) as wf:
+                n = wf.getnframes()
+                raw = wf.readframes(n)
+                src_rate = wf.getframerate()
+
+            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            out_rate = robot.media.get_output_audio_samplerate()
+            if out_rate > 0 and out_rate != src_rate:
+                g = math.gcd(src_rate, out_rate)
+                audio = resample_poly(audio, out_rate // g, src_rate // g).astype(np.float32)
+            else:
+                out_rate = src_rate
+            out_channels = robot.media.get_output_channels()
+            if out_channels > 1:
+                audio = np.tile(audio[:, np.newaxis], (1, out_channels))
+
+            duration_s = audio.shape[0] / out_rate
+            robot.media.start_playing()
+            robot.media.push_audio_sample(audio)
+            time.sleep(duration_s + 0.2)
+            robot.media.stop_playing()
+        except Exception as exc:
+            logger.debug("Ready cue failed (%s) – using pause instead.", exc)
+            time.sleep(0.4)
 
     def _speak(self, text: str, robot: ReachyMini) -> None:
         robot_behavior.on_speaking_start(robot, self._cfg)
