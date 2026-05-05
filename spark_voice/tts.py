@@ -47,19 +47,35 @@ class PiperTTS:
         out_rate: int = robot.media.get_output_audio_samplerate()
         out_channels: int = robot.media.get_output_channels()
 
-        if self._engine == "piper" and self._has_piper():
-            pcm, src_rate = self._piper_synthesize(text)
-        else:
-            pcm, src_rate = self._espeak_synthesize(text)
+        pcm, src_rate = self._synthesize_pcm(text)
 
         audio = _wav_bytes_to_float32(pcm)
-        audio = _resample(audio, src_rate, out_rate)
+        if len(audio) == 0:
+            logger.warning("TTS produced 0 samples for %r", text)
+            return audio
 
-        # Expand to output channel count
+        # Use src_rate as fallback if the hardware rate isn't available yet
+        effective_rate = out_rate if out_rate > 0 else src_rate
+        audio = _resample(audio, src_rate, effective_rate)
+
+        # Expand to output channel count (guard against 0 / -1 from SDK)
         if out_channels > 1:
             audio = np.tile(audio[:, np.newaxis], (1, out_channels))
 
         return audio
+
+    def _synthesize_pcm(self, text: str) -> tuple[bytes, int]:
+        """Try piper; fall back to espeak on any error."""
+        if self._engine == "piper" and self._has_piper():
+            try:
+                result = self._piper_synthesize(text)
+                pcm, rate = result
+                if pcm:
+                    return result
+                logger.warning("Piper returned empty audio; falling back to espeak.")
+            except Exception as exc:
+                logger.warning("Piper failed (%s); falling back to espeak.", exc)
+        return self._espeak_synthesize(text)
 
     # ------------------------------------------------------------------
     # Internal helpers

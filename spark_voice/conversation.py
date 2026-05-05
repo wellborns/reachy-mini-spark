@@ -162,6 +162,9 @@ class SparkVoiceApp(ReachyMiniApp):
         robot_behavior.on_speaking_start(robot, self._cfg)
         try:
             audio = self._tts.synthesize(text, robot)
+            if audio is None or len(audio) == 0:
+                logger.warning("TTS returned empty audio – nothing to play.")
+                return
             out_rate = robot.media.get_output_audio_samplerate()
             # push_audio_sample enqueues asynchronously; sleep for playback duration
             # before stopping so the audio isn't cut off
@@ -172,7 +175,7 @@ class SparkVoiceApp(ReachyMiniApp):
             time.sleep(duration_s + 0.3)  # +0.3 s buffer for stream flush
             robot.media.stop_playing()
         except Exception as exc:
-            logger.error("TTS/playback failed: %s", exc)
+            logger.error("TTS/playback failed: %s", exc, exc_info=True)
             robot_behavior.on_error(robot, self._cfg)
 
 
