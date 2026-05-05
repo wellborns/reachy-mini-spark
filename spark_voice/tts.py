@@ -43,9 +43,12 @@ class PiperTTS:
     # ------------------------------------------------------------------
 
     def synthesize(self, text: str, robot: "ReachyMini") -> np.ndarray:
-        """Return float32 audio array at the robot's output sample rate."""
+        """Return float32 mono audio array at the robot's output sample rate.
+
+        Channel expansion is intentionally omitted – push_audio_sample()
+        handles mono→stereo duplication automatically.
+        """
         out_rate: int = robot.media.get_output_audio_samplerate()
-        out_channels: int = robot.media.get_output_channels()
 
         pcm, src_rate = self._synthesize_pcm(text)
 
@@ -57,11 +60,7 @@ class PiperTTS:
         # Use src_rate as fallback if the hardware rate isn't available yet
         effective_rate = out_rate if out_rate > 0 else src_rate
         audio = _resample(audio, src_rate, effective_rate)
-
-        # Expand to output channel count (guard against 0 / -1 from SDK)
-        if out_channels > 1:
-            audio = np.tile(audio[:, np.newaxis], (1, out_channels))
-
+        logger.debug("TTS audio: %d samples @ %d Hz (%.2f s)", len(audio), effective_rate, len(audio) / effective_rate)
         return audio
 
     def _synthesize_pcm(self, text: str) -> tuple[bytes, int]:
