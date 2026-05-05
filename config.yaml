@@ -39,7 +39,7 @@ stt:
 # Text-to-Speech  (piper-tts, runs on CM4)
 # ---------------------------------------------------------------------------
 tts:
-  engine: "piper"               # piper | espeak
+  engine: "espeak"              # piper | espeak  (espeak avoids ~65 MB model download)
   # Piper voice model – downloaded automatically on first run
   voice: "en_US-lessac-medium"
   speed: 1.0
