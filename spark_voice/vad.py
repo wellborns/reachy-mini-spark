@@ -155,6 +155,12 @@ def _run_vad_loop(
                 else:
                     silence_frame_count += 1
                     if silence_frame_count >= silence_frames_needed:
+                        if speech_frame_count < min_speech_frames:
+                            logger.debug(
+                                "Utterance too short (%d frames, need %d) – discarding",
+                                speech_frame_count, min_speech_frames,
+                            )
+                            return None
                         logger.debug(
                             "End of utterance: %d speech frames, %d silence frames",
                             speech_frame_count, silence_frame_count,

@@ -46,7 +46,11 @@ class SparkVoiceApp(ReachyMiniApp):
     def run(self, robot: ReachyMini, stop_event: threading.Event) -> None:  # type: ignore[override]
         logger.info("Spark Voice Assistant started.")
         self._check_spark()
-        robot.wake_up()
+        try:
+            robot.wake_up()
+            logger.info("Robot woken up – motors should be powered.")
+        except Exception as exc:
+            logger.error("robot.wake_up() failed: %s – servos will be limp!", exc)
         robot_behavior.go_idle(robot, self._cfg)
 
         while not stop_event.is_set():
@@ -107,6 +111,8 @@ class SparkVoiceApp(ReachyMiniApp):
         ready_phrase = ww_cfg.get("ready_phrase", "Yes?")
         if ready_phrase:
             self._speak(ready_phrase, robot)
+            # Let the speaker echo die down before opening the mic
+            time.sleep(0.5)
         else:
             time.sleep(0.4)
 

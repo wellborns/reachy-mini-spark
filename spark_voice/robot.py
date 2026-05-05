@@ -39,7 +39,13 @@ def _goto(robot: "ReachyMini", head: np.ndarray | None = None,
                 kwargs["antennas"] = antennas
             robot.goto_target(**kwargs)
         except Exception as exc:
-            logger.warning("goto_target failed: %s", exc)
+            msg = str(exc)
+            # SDK/daemon version skew causes spurious task-timeout errors even
+            # when the movement was accepted; log at DEBUG to avoid log spam.
+            if "did not complete in time" in msg or "timed out" in msg.lower():
+                logger.debug("goto_target timed out (SDK/daemon mismatch?): %s", msg)
+            else:
+                logger.warning("goto_target failed: %s", exc)
     threading.Thread(target=_go, daemon=True).start()
 
 
