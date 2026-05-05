@@ -43,11 +43,12 @@ def collect_utterance(robot: "ReachyMini", cfg: dict) -> np.ndarray | None:
     Returns None on timeout or if no speech was detected.
     """
     vad_cfg = cfg.get("vad", {})
-    mode: int = vad_cfg.get("mode", 2)
+    mode: int = vad_cfg.get("mode", 3)
     frame_ms: int = vad_cfg.get("frame_duration_ms", 30)
-    silence_ms: int = vad_cfg.get("silence_duration_ms", 1200)
-    min_speech_ms: int = vad_cfg.get("min_speech_duration_ms", 400)
+    silence_ms: int = vad_cfg.get("silence_duration_ms", 900)
+    min_speech_ms: int = vad_cfg.get("min_speech_duration_ms", 600)
     max_s: float = vad_cfg.get("max_utterance_duration_s", 30)
+    rms_threshold: float = float(vad_cfg.get("rms_threshold", 0.008))
 
     vad = webrtcvad.Vad(mode)
 
@@ -60,8 +61,8 @@ def collect_utterance(robot: "ReachyMini", cfg: dict) -> np.ndarray | None:
     hw_channels: int = robot.media.get_input_channels()
 
     logger.info(
-        "VAD ready: hw_rate=%d ch=%d  vad_frame=%dms  silence_thresh=%dms",
-        hw_rate, hw_channels, frame_ms, silence_ms,
+        "VAD ready: hw_rate=%d ch=%d  mode=%d  rms_gate=%.4f  silence_thresh=%dms",
+        hw_rate, hw_channels, mode, rms_threshold, silence_ms,
     )
 
     robot.media.start_recording()
@@ -69,6 +70,7 @@ def collect_utterance(robot: "ReachyMini", cfg: dict) -> np.ndarray | None:
         return _run_vad_loop(
             robot, vad, hw_rate, hw_channels,
             vad_frame_samples, silence_frames_needed, min_speech_frames, max_s,
+            rms_threshold,
         )
     finally:
         robot.media.stop_recording()
@@ -77,6 +79,7 @@ def collect_utterance(robot: "ReachyMini", cfg: dict) -> np.ndarray | None:
 def _run_vad_loop(
     robot, vad, hw_rate, hw_channels,
     vad_frame_samples, silence_frames_needed, min_speech_frames, max_s,
+    rms_threshold: float,
 ) -> np.ndarray | None:
     """Core VAD accumulator.
 
@@ -85,12 +88,14 @@ def _run_vad_loop(
     buffer, then slices off as many complete VAD frames as are available.
     This avoids the stale-sample bug where the same prefix was reprocessed
     on every iteration.
+
+    An RMS energy gate is applied before webrtcvad: frames below the threshold
+    are treated as silence regardless of webrtcvad's verdict, which filters
+    low-level ambient noise that webrtcvad may misclassify as speech.
     """
-    # Flat buffer of float32 samples at _VAD_RATE
-    pending: list[float] = []
     pending_arr = np.empty(0, dtype=np.float32)
 
-    utterance_frames: list[np.ndarray] = []   # 16 kHz frames we'll return
+    utterance_frames: list[np.ndarray] = []
     pre_speech: collections.deque[np.ndarray] = collections.deque(maxlen=10)  # ~300 ms
 
     speech_started = False
@@ -121,13 +126,16 @@ def _run_vad_loop(
         # Drain as many complete VAD frames as we have
         while len(pending_arr) >= vad_frame_samples:
             frame = pending_arr[:vad_frame_samples]
-            pending_arr = pending_arr[vad_frame_samples:]  # ← advance past processed
+            pending_arr = pending_arr[vad_frame_samples:]
 
+            # RMS energy gate: quiet frames can't be speech
+            rms = float(np.sqrt(np.mean(frame ** 2)))
             is_speech = False
-            try:
-                is_speech = vad.is_speech(_to_int16(frame), _VAD_RATE)
-            except Exception:
-                pass
+            if rms >= rms_threshold:
+                try:
+                    is_speech = vad.is_speech(_to_int16(frame), _VAD_RATE)
+                except Exception:
+                    pass
 
             if not speech_started:
                 pre_speech.append(frame)
@@ -136,7 +144,9 @@ def _run_vad_loop(
                     utterance_frames.extend(list(pre_speech))
                     speech_frame_count = 1
                     silence_frame_count = 0
-                    logger.info("Speech detected – recording utterance …")
+                    logger.info(
+                        "Speech detected (rms=%.4f) – recording utterance …", rms
+                    )
             else:
                 utterance_frames.append(frame)
                 if is_speech:
@@ -149,7 +159,6 @@ def _run_vad_loop(
                             "End of utterance: %d speech frames, %d silence frames",
                             speech_frame_count, silence_frame_count,
                         )
-                        # Return only speech + small trailing silence
                         keep = speech_frame_count + min(silence_frame_count, 5)
                         return np.concatenate(utterance_frames[-keep:]) \
                             if keep < len(utterance_frames) \

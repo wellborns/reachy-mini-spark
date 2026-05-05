@@ -7,7 +7,7 @@ spark:
   # Spark's local IP or hostname.  Ollama default port is 11434; LM Studio 1234.
   api_base: "http://192.168.1.41:11434/v1"
   api_key: "ollama"          # placeholder – not validated by Ollama
-  model: "qwen2.5:14b-instruct-q4_K_M"  # confirmed available on Spark
+  model: "llama3.2:3b"  # fast (1-2 s); switch to qwen2.5:14b-instruct-q4_K_M for better quality
   max_tokens: 256
   temperature: 0.7
   timeout: 30                # seconds to wait for LLM response
@@ -32,7 +32,7 @@ stt:
   model: "tiny"        # tiny | base | small  – tiny is fastest on CM4
   language: "en"       # set null for auto-detect
   device: "cpu"
-  compute_type: "int8" # int8 for speed; float32 for accuracy
+  compute_type: "float32"  # float32 is faster than int8 on ARM Cortex-A72 (no int8 SIMD overhead)
   beam_size: 1
 
 # ---------------------------------------------------------------------------
@@ -51,11 +51,13 @@ tts:
 # Voice Activity Detection  (webrtcvad, runs on CM4)
 # ---------------------------------------------------------------------------
 vad:
-  mode: 2                      # 0 (permissive) – 3 (aggressive), 2 recommended
+  mode: 3                      # 0 (permissive) – 3 (aggressive); 3 rejects most ambient noise
   frame_duration_ms: 30        # 10 | 20 | 30
-  silence_duration_ms: 1200   # trailing silence before end-of-utterance
-  min_speech_duration_ms: 400  # discard very short blips
+  silence_duration_ms: 900     # ms of trailing silence before end-of-utterance (was 1200)
+  min_speech_duration_ms: 600  # discard utterances shorter than this (was 400; filters noise bursts)
   max_utterance_duration_s: 30 # safety cap
+  rms_threshold: 0.008         # energy gate: frames below this RMS are treated as silence
+                               # raise if ambient noise still triggers (try 0.015, 0.025)
 
 # ---------------------------------------------------------------------------
 # Wake-word  (optional; set enabled: false for always-on listening)
