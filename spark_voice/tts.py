@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import wave
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PIPER_MODEL_DIR_DEFAULT = "/home/reachy/.local/share/piper-voices"
+_PIPER_MODEL_DIR_DEFAULT = str(Path.home() / ".local/share/piper-voices")
 
 
 class PiperTTS:

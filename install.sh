@@ -4,6 +4,11 @@ set -euo pipefail
 
 echo "=== Reachy Mini Spark Voice Assistant – installer ==="
 
+# Detect the real user (works whether run as root via sudo or directly)
+INSTALL_USER="${SUDO_USER:-$(whoami)}"
+INSTALL_HOME="$(getent passwd "${INSTALL_USER}" | cut -d: -f6)"
+echo "  Installing for user: ${INSTALL_USER} (home: ${INSTALL_HOME})"
+
 # -----------------------------------------------------------------------
 # System dependencies
 # -----------------------------------------------------------------------
@@ -26,7 +31,7 @@ sudo apt-get install -y --no-install-recommends \
 # Python virtual environment
 # -----------------------------------------------------------------------
 echo "[2/5] Creating Python virtual environment …"
-VENV_DIR="${HOME}/.venvs/spark-voice"
+VENV_DIR="${INSTALL_HOME}/.venvs/spark-voice"
 python3 -m venv "${VENV_DIR}"
 # shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
@@ -84,7 +89,7 @@ Wants=reachy-mini.service
 
 [Service]
 Type=simple
-User=reachy
+User=${INSTALL_USER}
 WorkingDirectory=${SCRIPT_DIR}
 Environment=PYTHONUNBUFFERED=1
 ExecStart=${VENV_DIR}/bin/python -m spark_voice.conversation
