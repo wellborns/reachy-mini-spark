@@ -110,16 +110,22 @@ class PiperTTS:
         from piper import PiperVoice
         model_path = self._resolve_model()
         voice = PiperVoice.load(model_path)
+        rate = voice.config.sample_rate
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
-            wf.setframerate(voice.config.sample_rate)
-            for audio_bytes in voice.synthesize_stream_raw(text):
-                wf.writeframes(audio_bytes)
+            wf.setframerate(rate)
+            # piper-tts >=1.2 uses synthesize(text, wav_file)
+            # older versions used synthesize_stream_raw(text)
+            if hasattr(voice, "synthesize"):
+                voice.synthesize(text, wf)
+            else:
+                for audio_bytes in voice.synthesize_stream_raw(text):
+                    wf.writeframes(audio_bytes)
 
-        return buf.getvalue(), voice.config.sample_rate
+        return buf.getvalue(), rate
 
     def _resolve_model(self) -> str:
         """Return path to the .onnx model file, downloading if needed."""

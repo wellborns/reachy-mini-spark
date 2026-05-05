@@ -71,12 +71,23 @@ def _load_oww(model_path: str | None):
         import openwakeword
         from openwakeword.model import Model
 
-        if model_path:
-            return Model(wakeword_models=[model_path], inference_framework="onnx")
-        else:
-            # Use the bundled hey_jarvis model (downloaded on first call)
+        # download_models() was added in openwakeword 0.5+; in 0.4.x models are
+        # bundled inside the package so we skip the download step if unavailable.
+        if hasattr(openwakeword.utils, "download_models"):
             openwakeword.utils.download_models()
-            return Model(inference_framework="onnx")
+
+        if model_path:
+            # Try modern kwarg first, fall back for older versions
+            try:
+                return Model(wakeword_models=[model_path], inference_framework="onnx")
+            except TypeError:
+                return Model(wakeword_models=[model_path])
+        else:
+            try:
+                return Model(inference_framework="onnx")
+            except TypeError:
+                return Model()
+
     except ImportError:
         logger.debug("openwakeword not installed.")
         return None
