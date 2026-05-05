@@ -198,15 +198,25 @@ def _resample(audio: np.ndarray, src: int, dst: int) -> np.ndarray:
 
 
 def _download_piper_model(voice: str, model_dir: str) -> None:
+    """Download piper .onnx + .onnx.json from the rhasspy/piper-voices HF repo.
+
+    Repo layout: <lang_code>/<locale>/<speaker>/<quality>/<voice>.onnx
+    e.g. en/en_US/lessac/medium/en_US-lessac-medium.onnx
+    """
     import os
     import urllib.request
 
     os.makedirs(model_dir, exist_ok=True)
     base = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+
+    # "en_US-lessac-medium" → locale="en_US", speaker="lessac", quality="medium"
     parts = voice.split("-")
-    lang = parts[0]
-    lang_region = f"{parts[0]}_{parts[1]}" if len(parts) > 1 else lang
-    path = f"{lang}/{lang_region}/{voice}"
+    locale = parts[0]                              # "en_US"
+    lang_code = locale.split("_")[0].lower()       # "en"
+    speaker = parts[1] if len(parts) > 1 else ""   # "lessac"
+    quality = parts[2] if len(parts) > 2 else ""   # "medium"
+
+    path = f"{lang_code}/{locale}/{speaker}/{quality}"
 
     for ext in (".onnx", ".onnx.json"):
         url = f"{base}/{path}/{voice}{ext}"

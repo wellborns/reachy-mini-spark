@@ -87,6 +87,8 @@ class SparkLLM:
 
         hass_action = _extract_hass_action(raw)
         spoken = _HASS_TAG_RE.sub("", raw).strip()
+        # Strip null-action markers the model emits instead of omitting the tag
+        spoken = re.sub(r"\[\s*[Nn]one\s*\]", "", spoken).strip()
 
         self._history.append({"role": "assistant", "content": raw})
         self._trim_history()
